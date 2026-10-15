@@ -70,43 +70,39 @@ document.getElementById('connectBtn').addEventListener('click', async () => {
     const batteryEl = document.getElementById('batteryLevel');
     const errorEl = document.getElementById('errorLog');
     
-    // Clear previous states
     errorEl.innerText = "";
-    nameEl.innerText = "Connecting...";
+    nameEl.innerText = "Scanning...";
     batteryEl.innerText = "--";
 
     try {
-        // 1. Request the device filtering for audio/battery services
+        // 1. Broaden the filter so AirPods can be discovered
+        // We look for any device named "AirPods" or we can accept all devices
         const device = await navigator.bluetooth.requestDevice({
             filters: [
-                { services: ['battery_service'] }
+                { namePrefix: 'AirPods' } 
             ],
-            optionalServices: ['generic_access']
+            // This tells the browser it's allowed to interact with standard profiles if they exist
+            optionalServices: ['battery_service', 'generic_access'] 
         });
 
-        nameEl.innerText = device.name || "Unknown Device";
+        nameEl.innerText = device.name || "Unknown AirPods";
+        log("Connected to device object. Attempting GATT connection...");
 
-        // 2. Connect to the GATT Server
+        // 2. Connect to the device
         const server = await device.gatt.connect();
-
-        // 3. Get the Battery Service
-        const service = await server.getPrimaryService('battery_service');
-
-        // 4. Get the Battery Level Characteristic
-        const characteristic = await service.getCharacteristic('battery_level');
-
-        // 5. Read the value (returns an array with 1 byte representing 0-100%)
-        const value = await characteristic.readValue();
-        const batteryPercent = value.getUint8(0);
-
-        batteryEl.innerText = batteryPercent + "%";
-
-        // Optional: Listen for live updates if the battery level changes
-        await characteristic.startNotifications();
-        characteristic.addEventListener('characteristicvaluechanged', (event) => {
-            const updatedValue = event.target.value.getUint8(0);
-            batteryEl.innerText = updatedValue + "%";
-        });
+        
+        // 3. Attempt to read standard battery (Note: This may fail on certain AirPods models/firmwares)
+        try {
+            const service = await server.getPrimaryService('battery_service');
+            const characteristic = await service.getCharacteristic('battery_level');
+            const value = await characteristic.readValue();
+            const batteryPercent = value.getUint8(0);
+            batteryEl.innerText = batteryPercent + "%";
+        } catch (gattErr) {
+            console.log(gattErr);
+            batteryEl.innerText = "Unavailable via GATT";
+            errorEl.innerText = "Connected! However, Apple blocks standard GATT battery reading on this model. AirPods rely on BLE Advertisements instead.";
+        }
 
     } catch (error) {
         nameEl.innerText = "Error";
